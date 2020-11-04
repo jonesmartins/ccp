@@ -4,15 +4,19 @@ import os
 import pathlib
 import socket
 import sys
-from typing import List, Tuple
+import pickle
+from typing import List, Tuple, Dict
+import threading
+
+import tqdm
 
 
 def get_client_parser() -> argparse.ArgumentParser:
     """
     Leitor de argumentos da aplicação cliente.
      - address: Endereço do servidor
-     - local: Endereço do arquivo-destino (local)
-     - remote: Endereço do arquivo-fonte (remoto)
+     - local: Caminho do arquivo-destino (local)
+     - remote: Caminho do arquivo-fonte (remoto)
      - compressed: Ativa compressão de envio, mas não descomprime no recebimento.
      - streams: Quantidade de conexões paralelas de envio/recebimento.
      - debug_mode: Ativa mensagens de depuração.
@@ -88,36 +92,36 @@ def parse_address(address: str) -> Tuple[str, int]:
     return hostname, port
 
 
-def is_valid_ipv4_address(address: str) -> bool:
+def is_valid_ipv4_hostname(hostname: str) -> bool:
     """
     Verifica se endereço é IPv4 válido.
-    :param address: Endereço IP
+    :param hostname: Endereço IP
     :return: True se é válido, senão False.
     """
     # Fonte: https://stackoverflow.com/a/4017219
     try:
-        socket.inet_pton(socket.AF_INET, address)
+        socket.inet_pton(socket.AF_INET, hostname)
     except AttributeError:  # no inet_pton here, sorry
         try:
-            socket.inet_aton(address)
+            socket.inet_aton(hostname)
         except socket.error:
             return False
-        return address.count('.') == 3
+        return hostname.count('.') == 3
     except socket.error:  # not a valid address
         return False
 
     return True
 
 
-def is_valid_ipv6_address(address: str) -> bool:
+def is_valid_ipv6_hostname(hostname: str) -> bool:
     """
     Verifica se endereço é IPv6 válido.
-    :param address: Endereço IP
+    :param hostname: Endereço IP
     :return: True se é válido, senão False.
     """
     # Fonte: https://stackoverflow.com/a/4017219
     try:
-        socket.inet_pton(socket.AF_INET6, address)
+        socket.inet_pton(socket.AF_INET6, hostname)
     except socket.error:  # not a valid address
         return False
     return True
@@ -132,18 +136,18 @@ def is_valid_port(port_number: int) -> bool:
     return port_number in range(0, 65536)
 
 
-def validate_ip(hostname: str):
+def validate_ip(hostname: str) -> str:
     """
     Termina programa se IP for inválido.
     :param hostname: Endereço IP
     """
-    if (not is_valid_ipv4_address(hostname) and
-            not is_valid_ipv6_address(hostname)):
+    if (not is_valid_ipv4_hostname(hostname) and
+            not is_valid_ipv6_hostname(hostname)):
         raise ValueError(f'IP {hostname} é inválido.')
     return hostname
 
 
-def validate_port(port: int):
+def validate_port(port: int) -> port:
     """
     Termina programa se porta for inválida.
     :param port: Porta de conexão
@@ -153,16 +157,22 @@ def validate_port(port: int):
     return port
 
 
-def get_abspath(path):
+def get_abspath(path: str) -> str:
+    """
+    Monta caminho absoluto a partir de um dado caminho de arquivo.
+    :param path: Caminho de um arquivo
+    :return: Caminho absoluto do arquivo
+    """
     base_path = pathlib.Path(__file__).parent
     abspath = (base_path / path).resolve()
     return abspath
 
 
-def validate_path(abs_path: str):
+def validate_path(abs_path: str) -> str:
     """
-    Termina programa se endereço absoluto for inválido.
-    :param abs_path: Endereço absoluto em um sistema de arquivos
+    Termina programa se caminho absoluto for inválido.
+    :param abs_path: Caminho absoluto do arquivo
+    :return: Caminho absoluto do arquivo
     """
     if not abs_path:
         err_str = 'Caminho vazio.'
@@ -199,16 +209,164 @@ def validate_path(abs_path: str):
     return abs_path
 
 
+def send_request(connection: socket.socket, request: Dict):
+    """
+    Envia requisição ao servidor
+    :param connection: Conexão com servidor
+    :param request: Pedido
+    """
+    request_bytes = pickle.dumps(request)
+    connection.sendall(request_bytes)
+
+
+def recv_response(connection: socket.socket) -> Dict:
+    """
+    Recebe resposta do servidor
+    :param connection: Conexão com servidor
+    :return: Resposta do servidor
+    """
+    end_byte = None
+    message_bytes = b''
+    while end_byte != '\0':
+        recv_bytes = connection.recv(1024)
+        message_bytes += recv_bytes
+        end_byte = message_bytes[-1]
+
+    message = pickle.loads(message_bytes)
+    return message
+
+
+def get_partial_path(path: str, port: int) -> str:
+    """
+    Monta o caminho parcial, que é o caminho de parte de um arquivo inteiro.
+    :param path: Caminho absoluto do arquivo-destino
+    :param port: Porta usada pelo servidor para enviar essa parte
+    :return: Caminho absoluto do arquivo-destino parcial
+    """
+    target_directory, target_filename = os.path.split(path)
+    partial_target_filename = f'{port}_{target_filename}'
+    partial_path = target_directory + partial_target_filename
+    return partial_path
+
+
+def start_download(hostname: str, port: int, target_path: str):
+    """
+    Inicia o download de parte do arquivo até receber byte de término.
+    :param hostname: IP do servidor
+    :param port: Porta de envio do servidor
+    :param target_path: Caminho absoluto do arquivo-destino
+    """
+    partial_path = get_partial_path(target_path, port)
+
+    download_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    download_socket.connect((hostname, port))
+
+    BUFFER_SIZE = 1024
+
+    total_data_written = 0
+    with open(partial_path, 'wb') as partial_file:
+        while (recv_bytes := download_socket.recv(BUFFER_SIZE)) != '\0':
+            curr_data_written = partial_file.write(recv_bytes)
+            total_data_written += curr_data_written
+    print(f'Fim do download. Baixei {total_data_written} bytes.')
+
+
+def join_downloaded_files(target_path: str, ports: List[int], read_size=2**20):
+    partial_paths = [
+        get_partial_path(target_path, port)
+        for port in ports
+    ]
+
+    total_downloaded_bytes = sum(
+        os.path.getsize(path) for path in partial_paths
+    )
+
+    progress_bar = tqdm.tqdm(
+        total_downloaded_bytes,
+        f"Juntando {len(ports)} arquivos, totalizando {total_downloaded_bytes} bytes.",
+        unit="B",
+        unit_scale=True,
+        unit_divisor=read_size
+    )
+    with open(target_path, 'wb') as complete_file:
+        for path in partial_paths:
+            with open(path, 'rb') as partial_file:
+                read_bytes = partial_file.read(read_size)
+                curr_data_written = complete_file.write(read_bytes)
+                progress_bar.update(curr_data_written)
+
+
 def run_client(
-        server_hostname,
-        server_port,
-        local_path,
-        remote_path,
-        streams,
-        compressed
+        server_hostname: str,
+        server_port: int,
+        local_path: str,
+        remote_path: str,
+        streams: int,
+        compressed: bool
 ):
-    print('Ran client')
-    return True
+    """
+    Protocolo:
+     - Cliente abre conexão com servidor.
+     - Cliente pede arquivo <remote_path> ao servidor.
+     - Cliente recebe tamanho de <remote_path> em bytes e P portas de conexão.
+     - Cliente abre P portas de conexão com servidor, e salva os arquivos
+        usando o nome <porta>_<local_path>.
+     - Ao terminar todos os downloads, o cliente concatena os bytes um.
+        Arquivo remoto: A = 1234A
+        Arquivos baixados: 1A, 2A, 3A, 4A
+        (1A + 2A) = 12A
+        (12A + 3A) = 123A
+        (123A + 4A) = 1234A = A
+     - Fim.
+
+    :param server_hostname: IP do servidor
+    :param server_port: Porta do servidor
+    :param local_path: Caminho do arquivo local
+    :param remote_path: Caminho do arquivo remoto
+    :param streams: Conexões paralelas
+    :param compressed: Ativa compressão por parte do servidor
+    """
+
+    if is_valid_ipv4_hostname(server_hostname):
+        socket_family = socket.AF_INET
+    elif is_valid_ipv6_hostname(server_hostname):
+        socket_family = socket.AF_INET6
+    else:
+        raise ValueError(f'IP {server_hostname} não é válido para IPv4 ou IPv6')
+
+    sock = socket.socket(socket_family, socket.SOCK_STREAM)
+    sock.connect((server_hostname, server_port))
+
+    # Agora que cliente se conectou, ele envia o pedido de download.
+    download_request = {
+        'path': local_path,
+        'streams': streams,
+        'compressed': compressed
+    }
+    send_request(sock, download_request)
+
+    download_response = recv_response(sock)
+    download_ports = download_response['ports']
+    if download_ports is None:
+        print(f'Arquivo {remote_path} não foi encontrado pelo servidor.')
+        sys.exit(1)
+
+    threads = [
+        threading.Thread(
+            target=start_download,
+            args=(server_hostname, port, local_path)
+        )
+        for port in download_ports
+    ]
+
+    for thread in threads:
+        thread.start()
+
+    for thread in threads:
+        thread.join()
+
+    join_downloaded_files(local_path, download_ports)
+    print('Fim!')
 
 
 def run_app(args: List[str]):
@@ -231,10 +389,6 @@ def run_app(args: List[str]):
         )
 
     server_hostname, server_port = parse_address(server_address)
-
-    # Vou deixar isso para dar erro na criação de socket.
-    # validate_ip(server_hostname)
-    # validate_port(server_port)
 
     abs_local_path = get_abspath(local_path)
     validate_path(abs_local_path)
