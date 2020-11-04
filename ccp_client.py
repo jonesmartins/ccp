@@ -1,9 +1,10 @@
 import argparse
-import sys
 import logging
-from typing import List, Tuple
 import os
+import pathlib
 import socket
+import sys
+from typing import List, Tuple
 
 
 def get_client_parser() -> argparse.ArgumentParser:
@@ -25,7 +26,6 @@ def get_client_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        '-a', '--address',
         type=str,
         dest='server_address',
         help='Endereço do servidor no formato <IP>:<PORTA>'
@@ -33,6 +33,7 @@ def get_client_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         '-l', '--local',
+        required=True,
         type=str,
         dest='local_path',
         help='Path do arquivo local'
@@ -40,6 +41,7 @@ def get_client_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         '-r', '--remote',
+        required=True,
         type=str,
         dest='remote_path',
         help='Path do arquivo remoto'
@@ -57,7 +59,8 @@ def get_client_parser() -> argparse.ArgumentParser:
         '-s', '--streams',
         type=int,
         dest='streams',
-        help='Quantidade de transferências de um arquivo em paralelo'
+        default=4,
+        help='Quantidade de transferências de um arquivo em paralelo (padrão: 4)'
     )
 
     parser.add_argument(
@@ -68,6 +71,21 @@ def get_client_parser() -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+def parse_address(address: str) -> Tuple[str, int]:
+    """
+    Separa o endereço de entrada em IP e PORT.
+    :param address: <IP>:<PORT>
+    :return: (<IP>, <PORT>)
+    """
+    try:
+        hostname, port_str = address.split(':')
+        port = int(port_str)
+    except ValueError:  # not enough values to unpack
+        raise ValueError('Formato inválido de endereço. Use <IP>:<PORTA>')
+
+    return hostname, port
 
 
 def is_valid_ipv4_address(address: str) -> bool:
@@ -114,63 +132,71 @@ def is_valid_port(port_number: int) -> bool:
     return port_number in range(0, 65536)
 
 
-def parse_address(address: str) -> Tuple[str, int]:
-    """
-    Separa o endereço de entrada em IP e PORT.
-    :param address: <IP>:<PORT>
-    :return: (<IP>, <PORT>)
-    """
-    try:
-        hostname, port_str = address.split(':')
-        port = int(port_str)
-    except ValueError:  # not enough values to unpack
-        print('Formato inválido de endereço. Use <IP>:<PORTA>')
-        sys.exit(1)
-
-    return hostname, port
-
-
-def exit_if_invalid_ip(hostname: str):
+def validate_ip(hostname: str):
     """
     Termina programa se IP for inválido.
     :param hostname: Endereço IP
     """
-    if (not is_valid_ipv4_address(hostname) or
+    if (not is_valid_ipv4_address(hostname) and
             not is_valid_ipv6_address(hostname)):
-        print(f'IP {hostname} é inválido.')
-        sys.exit(1)
+        raise ValueError(f'IP {hostname} é inválido.')
+    return hostname
 
 
-def exit_if_invalid_port(port: int):
+def validate_port(port: int):
     """
     Termina programa se porta for inválida.
     :param port: Porta de conexão
     """
     if not is_valid_port(port):
-        print(f'Porta {port} é inválida.')
-        sys.exit(1)
+        raise ValueError(f'Porta {port} é inválida.')
+    return port
 
 
-def exit_if_invalid_path(path: str):
+def get_abspath(path):
+    base_path = pathlib.Path(__file__).parent
+    abspath = (base_path / path).resolve()
+    return abspath
+
+
+def validate_path(abs_path: str):
     """
-    Termina programa se endereço for inválido.
-    :param path: Endereço em um sistema de arquivos
+    Termina programa se endereço absoluto for inválido.
+    :param abs_path: Endereço absoluto em um sistema de arquivos
     """
-    local_path_directory, local_path_file = os.path.split(path)
-    if not os.path.exists(local_path_directory):
-        print(f'Diretório {local_path_directory} não existe.')
-        sys.exit(1)
+    if not abs_path:
+        err_str = 'Caminho vazio.'
+        raise ValueError(err_str)
 
-    if (os.path.isdir(local_path_file) or
-            os.path.islink(local_path_file) or
-            os.path.ismount(local_path_file)):
-        print(f'{local_path_file} já existe, e não é arquivo.')
-        sys.exit(1)
+    if (os.path.isdir(abs_path) or
+            os.path.islink(abs_path) or
+            os.path.ismount(abs_path)):
+        err_str = f'Caminho "{abs_path}" já existe, e não é arquivo.'
+        raise FileExistsError(err_str)
+
+    local_path_directory, local_path_file = os.path.split(abs_path)
+    print(f'Diretório: "{local_path_directory}"\nArquivo: "{local_path_file}"')
+    if not local_path_file:
+        err_str = 'Caminho de arquivo vazio.'
+        raise ValueError(err_str)
+
+    if (os.path.isdir(local_path_directory) or
+            os.path.islink(local_path_directory) or
+            os.path.ismount(local_path_directory)):
+        err_str = f'Caminho "{local_path_directory}" já existe, e não é arquivo.'
+        raise FileExistsError(err_str)
+
+    if (local_path_directory and
+            os.path.isdir(local_path_directory) and
+            not os.path.exists(local_path_directory)):
+        err_str = f'Diretório "{local_path_directory}" não existe.'
+        raise FileNotFoundError(err_str)
 
     if os.path.isfile(local_path_file):
-        print(f'{local_path_file} já existe.')
-        print('Por favor, renomeie para um arquivo inexistente.')
-        sys.exit(1)
+        err_str = f'Arquivo {local_path_file} já existe.'
+        raise FileExistsError(err_str)
+
+    return abs_path
 
 
 def run_client(
@@ -181,7 +207,8 @@ def run_client(
         streams,
         compressed
 ):
-    pass
+    print('Ran client')
+    return True
 
 
 def run_app(args: List[str]):
@@ -193,12 +220,11 @@ def run_app(args: List[str]):
     parsed_args = parser.parse_args(args)
 
     server_address = parsed_args.server_address
-    local_path = parsed_args.local_path
-    remote_path = parsed_args.remote_path
+    local_path = parsed_args.local_path.strip()
+    remote_path = parsed_args.remote_path.strip()
     streams = parsed_args.streams
     compressed = parsed_args.compressed
 
-    # Ativa mensagens de depuração
     if parsed_args.debug_mode:
         logging.basicConfig(
             level=logging.DEBUG
@@ -206,9 +232,12 @@ def run_app(args: List[str]):
 
     server_hostname, server_port = parse_address(server_address)
 
-    exit_if_invalid_ip(server_hostname)
-    exit_if_invalid_port(server_port)
-    exit_if_invalid_path(local_path)
+    # Vou deixar isso para dar erro na criação de socket.
+    # validate_ip(server_hostname)
+    # validate_port(server_port)
+
+    abs_local_path = get_abspath(local_path)
+    validate_path(abs_local_path)
 
     run_client(
         server_hostname,
