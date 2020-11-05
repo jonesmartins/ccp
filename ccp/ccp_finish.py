@@ -1,9 +1,12 @@
 import argparse
-import os
-from typing import List
-import tqdm
 import gzip
+import os
 import sys
+from typing import List
+
+import tqdm
+
+from ccp.utils import bytes2human
 
 
 def get_finish_argparse():
@@ -27,9 +30,14 @@ def get_finish_argparse():
         help='Arquivo destino'
     )
 
+    parser.add_argument(
+        '-k', '--keep',
+        dest='keep',
+        action='store_true',
+    )
+
     return parser
 
-from ccp.utils import bytes2human
 
 def join_downloaded_files(
         source_paths: List[str],
@@ -40,29 +48,31 @@ def join_downloaded_files(
     )
 
     progress_bar = tqdm.tqdm(
-        total_downloaded_bytes,
-        f"Juntando {len(source_paths)} arquivos.",
+        total=total_downloaded_bytes,
+        desc=f"Juntando {len(source_paths)} arquivos.",
         unit="B",
         unit_scale=True,
         # unit_divisor=read_size
     )
-    with open(target_path, 'wb') as complete_file:
-        for path in source_paths:
-            with open(path, 'rb') as partial_file:
-                read_bytes = partial_file.read()
-                print(f'Read {len(read_bytes)}')
-                try:
-                    decompressed_bytes = gzip.decompress(read_bytes)
-                    print(
-                        f'Decompressed {bytes2human(len(read_bytes))} -> {len(decompressed_bytes)}')
-                    complete_file.write(decompressed_bytes)
-                    print(
-                        f'Wrote (decompressed) {len(decompressed_bytes)} to {target_path}')
-                except gzip.BadGzipFile:
-                    complete_file.write(read_bytes)
-                    print(f'Wrote {bytes2human(len(read_bytes))} to {target_path}')
-                finally:
-                    progress_bar.update(len(read_bytes))
+    with progress_bar as p_bar:
+        with open(target_path, 'wb') as complete_file:
+            for path in source_paths:
+                with open(path, 'rb') as partial_file:
+                    read_bytes = partial_file.read()
+                    print(f'Read {len(read_bytes)}')
+                    try:
+                        decompressed_bytes = gzip.decompress(read_bytes)
+                        print(
+                            f'Decompressed {bytes2human(len(read_bytes))} -> {bytes2human(len(decompressed_bytes))} to {target_path}')
+                        complete_file.write(decompressed_bytes)
+                        print(
+                            f'Wrote (decompressed) {bytes2human(len(decompressed_bytes))} to {target_path}')
+                    except gzip.BadGzipFile:
+                        complete_file.write(read_bytes)
+                        print(f'Wrote {bytes2human(len(read_bytes))} to {target_path}')
+                    finally:
+                        p_bar.update(len(read_bytes))
+        p_bar.refresh()
 
 
 def delete_files(paths):
@@ -76,9 +86,11 @@ def run():
 
     source_files = parsed_args.source_files
     target_file = parsed_args.target_file
+    keep = parsed_args.keep
 
     join_downloaded_files(source_files, target_file)
-    delete_files(source_files)
+    if not keep:
+        delete_files(source_files)
 
 
 if __name__ == '__main__':

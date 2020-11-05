@@ -209,55 +209,6 @@ class ThreadedFileServerRequestHandler(socketserver.BaseRequestHandler):
         os.remove(partition_path)
 
 
-    # def start_download(
-    #         self,
-    #         sock,
-    #         path,
-    #         partition_index,
-    #         block_size,
-    #         partition_size,
-    #         compressed
-    # ):
-    #
-    #     if compressed:
-    #         with open(path, mode='rb') as file:
-    #             import shutil
-    #             from addressing import get_partial_path
-    #             partial_path = get_partial_path(path, port=sock.getsockname()[1])
-    #             with gzip.open(partial_path, mode='wb', compresslevel=1) as gzip_file:
-    #                 shutil.copyfileobj(file, gzip_file)
-    #         path = partial_path
-    #
-    #     connection, _ = sock.accept()
-    #     try:
-    #         with open(path, mode='rb') as file:
-    #             file.seek(partition_index * partition_size)
-    #             total_bytes_read = 0
-    #             partition = 0
-    #             while total_bytes_read < partition_size:
-    #                 # with open(compressed_filename, 'w') as zf:
-    #                 block_bytes = file.read(block_size)
-    #                 # if compressed:
-    #                 #     block_bytes = gzip.compress(block_bytes, compresslevel=1)
-    #
-    #                 connection.sendall(block_bytes)
-    #
-    #                 print(f'{datetime.now()} - Bytes read: {len(block_bytes)}')
-    #                 total_bytes_read += len(block_bytes)
-    #                 print(
-    #                     f'{datetime.now()} - Total bytes read: {total_bytes_read} bytes.')
-    #                 partition += 1
-    #                 print(f'{datetime.now()} - Total partitions:', partition)
-    #         connection.shutdown(socket.SHUT_RDWR)
-    #
-    #     except:
-    #         pass
-    #     else:
-    #         print('Finished sending!')
-    #     finally:
-    #         connection.close()
-    #         sock.close()
-
     def download_interaction(
             self,
             path: str,

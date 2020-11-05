@@ -127,9 +127,9 @@ def validate_path(abs_path: str) -> str:
         err_str = f'Diretório "{local_path_directory}" não existe.'
         raise FileNotFoundError(err_str)
 
-    if os.path.isfile(local_path_file):
-        err_str = f'Arquivo {local_path_file} já existe.'
-        raise FileExistsError(err_str)
+    # if os.path.isfile(local_path_file):
+    #     err_str = f'Arquivo {local_path_file} já existe.'
+    #     raise FileExistsError(err_str)
 
     return abs_path
 

@@ -6,7 +6,6 @@ import pickle
 import socket
 import sys
 import threading
-from typing import List, Tuple, Dict
 
 import tqdm
 
@@ -24,11 +23,11 @@ from ccp.messaging import (
     recv_message
 )
 
-from ccp.utils import bytes2human, human2bytes
+from ccp.utils import bytes2human
 from ccp.argparsers import get_client_parser
 
 
-def start_download(hostname: str, port: int, part_id: int, target_path: str):
+def start_download(hostname: str, port: int, part_id: int, target_path: pathlib.Path):
     """
     Inicia o download de parte do arquivo até receber byte de término.
     :param hostname: IP do servidor
@@ -38,29 +37,46 @@ def start_download(hostname: str, port: int, part_id: int, target_path: str):
     """
     partial_path = get_partial_path(target_path, part_id)
 
-    print(f'{port}: Iniciando download de {target_path} para o arquivo parcial {partial_path}')
+    # print(f'{port}: Iniciando download de {target_path} para o arquivo parcial {partial_path}')
 
     download_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     download_socket.connect((hostname, port))
 
     file_length = recv_message(download_socket, nbytes=30)
-    print(f'{port}: Recebi tamanho do download: ', file_length)
+    # print(f'{port}: Recebi tamanho do download: ', file_length)
 
     BUFFER_SIZE = 2 ** 20
 
+    progress_bar = tqdm.tqdm(
+        total=file_length,
+        desc=f"Baixando {partial_path}.",
+        unit="B",
+        unit_scale=True,
+        unit_divisor=BUFFER_SIZE
+    )
     total_data_written = 0
     total_data_received = 0
-    with open(partial_path, 'wb') as partial_file:
-        while total_data_written < file_length:
-            recv_bytes = download_socket.recv(BUFFER_SIZE)
-            print(f'{port}: Recebi {len(recv_bytes)} bytes do servidor.')
-            if not recv_bytes or recv_bytes == 0:
-                raise RuntimeError('Broken connection')
-            curr_data_written = partial_file.write(recv_bytes)
-            total_data_written += curr_data_written
-            total_data_received += len(recv_bytes)
+    import time
+    start = time.perf_counter()
+    with progress_bar as p_bar:
+        with open(partial_path, 'wb') as partial_file:
+            while total_data_written < file_length:
+                recv_bytes = download_socket.recv(BUFFER_SIZE)
+                # print(f'{port}: Recebi {len(recv_bytes)} bytes do servidor.')
+                if not recv_bytes or recv_bytes == 0:
+                    raise RuntimeError('Broken connection')
+                curr_data_written = partial_file.write(recv_bytes)
+                total_data_written += curr_data_written
+                total_data_received += len(recv_bytes)
+                p_bar.update(n=len(recv_bytes))
+        p_bar.refresh()
 
-    print(f'Fim do download de {partial_path}. Tamanho: {bytes2human(total_data_written)}.')
+    end = time.perf_counter()
+    print(
+        f'Fim do download de {partial_path}.\n'
+        f'Tamanho: {bytes2human(total_data_written)}.'
+        f'Tempo: {(end - start):.5f} s'
+    )
 
 
 def confirm_decision(question):
