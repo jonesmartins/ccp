@@ -1,0 +1,2 @@
+(2020-11-04) 19:59:57.337 - __init__.<module> [DEBUG]:
+Terminal width set as 105 columns.
