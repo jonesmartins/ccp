@@ -134,14 +134,16 @@ def validate_path(abs_path: str) -> str:
     return abs_path
 
 
-def get_partial_path(path: str, port: int) -> str:
+def get_partial_path(path: pathlib.Path, part_id: int) -> str:
     """
     Monta o caminho parcial, que é o caminho de parte de um arquivo inteiro.
     :param path: Caminho absoluto do arquivo-destino
-    :param port: Porta usada pelo servidor para enviar essa parte
+    :param part_id: ID da partição
     :return: Caminho absoluto do arquivo-destino parcial
     """
-    target_directory, target_filename = os.path.split(path)
-    partial_target_filename = f'{port}_{target_filename}'
-    partial_path = target_directory + partial_target_filename
-    return partial_path
+    return str(path) + f'.part{part_id}'
+
+    # target_directory, target_filename = os.path.split(path)
+    # partial_target_filename = f'{port}_{target_filename}'
+    # partial_path = target_directory + partial_target_filename
+    # return partial_path

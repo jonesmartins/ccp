@@ -44,7 +44,7 @@ def get_client_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '-c', '--compressed',
         action='store_true',
-        default=True,
+        default=False,
         dest='compressed',
         help='Ativa compressão no envio, mas não descomprime no recebimento.'
     )

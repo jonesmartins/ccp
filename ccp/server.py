@@ -7,15 +7,17 @@ import socket
 import sys
 import gzip
 import psutil
-import daemon
+# import daemon
 import math
 from datetime import datetime
 
 
-from messaging import send_message, recv_message
-from addressing import get_abspath, validate_path
-from argparsers import get_server_parser
-from utils import bytes2human, human2bytes
+from ccp.messaging import send_message, recv_message
+from ccp.addressing import get_abspath, validate_path
+from ccp.argparsers import get_server_parser
+from ccp.utils import bytes2human, human2bytes
+import shutil
+from ccp.addressing import get_partial_path
 
 
 def get_partition_sizes(size, n_workers):
@@ -28,44 +30,233 @@ class ThreadedFileServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 
 class ThreadedFileServerRequestHandler(socketserver.BaseRequestHandler):
-    def start_download(
+    # def start_download(
+    #         self,
+    #         sock,
+    #         path,
+    #         partition_index,
+    #         block_size,
+    #         partition_size,
+    #         compressed
+    # ):
+    #     connection, _ = sock.accept()
+    #     try:
+    #         with open(path, mode='rb') as file:
+    #             file.seek(partition_index * partition_size)
+    #             total_bytes_read = 0
+    #             partition = 0
+    #             while total_bytes_read < partition_size:
+    #                 # with open(compressed_filename, 'w') as zf:
+    #                 block_bytes = file.read(block_size)
+    #                 if compressed:
+    #                     block_bytes = gzip.compress(block_bytes, compresslevel=1)
+    #
+    #                 connection.sendall(block_bytes)
+    #
+    #                 print(f'{datetime.now()} - Bytes read: {len(block_bytes)}')
+    #                 total_bytes_read += len(block_bytes)
+    #                 print(
+    #                     f'{datetime.now()} - Total bytes read: {total_bytes_read} bytes.')
+    #                 partition += 1
+    #                 print(f'{datetime.now()} - Total partitions:', partition)
+    #         connection.shutdown(socket.SHUT_RDWR)
+    #
+    #     except:
+    #         pass
+    #     else:
+    #         print('Finished sending!')
+    #     finally:
+    #         connection.close()
+    #         sock.close()
+
+    def compress_file(self, source_path, target_path, start_byte, partition_size):
+        print(
+            f'Compressing {source_path} to {target_path} from {start_byte} to {start_byte + partition_size}.')
+        with open(
+                source_path,
+                mode='rb'
+        ) as file:
+            file.seek(start_byte)
+            with gzip.open(
+                    target_path,
+                    mode='wb',
+                    compresslevel=1
+            ) as gzip_file:
+                bytes_written = gzip_file.write(file.read(partition_size))
+                print(f'Wrote {bytes2human(bytes_written)} to {target_path}')
+
+    def partition_file(self, source_path, target_path, start_byte, partition_size):
+        """
+        Write to <dest> <source>'s content from start_byte to start_byte + partition_size.
+        :param source_path: Source file
+        :param target_path: Destination file
+        :param start_byte:
+        :param partition_size:
+        :return:
+        """
+        print(f'Partitioning {source_path} to {target_path} from {start_byte} to {start_byte + partition_size}.')
+        with open(
+                source_path,
+                mode='rb'
+        ) as file:
+            with open(
+                    target_path,
+                    mode='wb',
+            ) as partitioned_file:
+                file.seek(start_byte)
+                bytes_written = partitioned_file.write(file.read(partition_size))
+                print(f'Wrote {bytes2human(bytes_written)} to {target_path}')
+
+    def send_partition(
             self,
             sock,
-            path,
-            partition_index,
-            block_size,
-            partition_size,
-            compressed
+            partition_path,
+            block_size
     ):
+
+        download_port = sock.getsockname()[1]
+
         connection, _ = sock.accept()
+
+        # Antes de enviar o arquivo, enviamos o tamanho.
+        import os
+        file_size = os.path.getsize(partition_path)
+        length_bytes = pickle.dumps(file_size)
+        length_bytes_buf = bytearray(30)
+        length_bytes_buf[:len(length_bytes)] = length_bytes
+        connection.sendall(length_bytes_buf)
+
+        print(
+            f'{download_port}: Enviei o tamanho do arquivo parcial "{partition_path}": {bytes2human(file_size)}')
+
         try:
-            with open(path, mode='rb') as file:
-                file.seek(partition_index * partition_size)
+            with open(partition_path, mode='rb') as partial_file:
                 total_bytes_read = 0
-                partition = 0
-                while total_bytes_read < partition_size:
-                    # with open(compressed_filename, 'w') as zf:
-                    block_bytes = file.read(block_size)
-                    if compressed:
-                        block_bytes = gzip.compress(block_bytes, compresslevel=1)
-
+                blocks_written = 0
+                while total_bytes_read < file_size:
+                    block_bytes = partial_file.read(
+                        min(file_size - total_bytes_read, block_size))
+                    if not block_bytes:
+                        raise RuntimeError(f'{download_port}: Read 0 bytes!')
+                    print(
+                        f'{download_port}: Li {bytes2human(len(block_bytes))} bytes de {partition_path} para enviar.')
                     connection.sendall(block_bytes)
+                    print(f'{download_port}: Enviei block_bytes.')
 
-                    print(f'{datetime.now()} - Bytes read: {len(block_bytes)}')
+                    # print(
+                    #     f'{download_port}: Bytes read: {len(block_bytes)}')
                     total_bytes_read += len(block_bytes)
                     print(
-                        f'{datetime.now()} - Total bytes read: {total_bytes_read} bytes.')
-                    partition += 1
-                    print(f'{datetime.now()} - Total partitions:', partition)
-            connection.shutdown(socket.SHUT_RDWR)
+                        f'{download_port}:  Total bytes read: {bytes2human(total_bytes_read)}.')
+                    blocks_written += 1
+                    # print(f'{download_port}:  Total blocks_written:',
+                    #       blocks_written)
 
-        except:
-            pass
+        except Exception as exc:
+            print(exc)
         else:
             print('Finished sending!')
         finally:
             connection.close()
             sock.close()
+
+    def start_download(
+            self,
+            partition_id,
+            sock,
+            path,
+            start_byte,
+            partition_size,
+            block_size,
+            compressed
+    ):
+
+        partition_path = get_partial_path(
+            path,
+            part_id=partition_id
+        )
+
+        if compressed:
+            self.compress_file(
+                source_path=path,
+                target_path=partition_path,
+                start_byte=start_byte,
+                partition_size=partition_size
+            )
+        else:
+            self.partition_file(
+                source_path=path,
+                target_path=partition_path,
+                start_byte=start_byte,
+                partition_size=partition_size
+            )
+
+        info_str = (
+            f'Send file whole: {path}\n'
+            f' - start_byte: {start_byte}\n'
+            f' - partition_size: {bytes2human(partition_size)}\n'
+            f' - block_size: {bytes2human(block_size)}\n'
+            f' - compressed: {compressed}\n'
+            f'Result: {partition_path}\n'
+        )
+        print(info_str)
+
+        self.send_partition(
+            sock,
+            partition_path,
+            block_size=block_size
+        )
+        os.remove(partition_path)
+
+
+    # def start_download(
+    #         self,
+    #         sock,
+    #         path,
+    #         partition_index,
+    #         block_size,
+    #         partition_size,
+    #         compressed
+    # ):
+    #
+    #     if compressed:
+    #         with open(path, mode='rb') as file:
+    #             import shutil
+    #             from addressing import get_partial_path
+    #             partial_path = get_partial_path(path, port=sock.getsockname()[1])
+    #             with gzip.open(partial_path, mode='wb', compresslevel=1) as gzip_file:
+    #                 shutil.copyfileobj(file, gzip_file)
+    #         path = partial_path
+    #
+    #     connection, _ = sock.accept()
+    #     try:
+    #         with open(path, mode='rb') as file:
+    #             file.seek(partition_index * partition_size)
+    #             total_bytes_read = 0
+    #             partition = 0
+    #             while total_bytes_read < partition_size:
+    #                 # with open(compressed_filename, 'w') as zf:
+    #                 block_bytes = file.read(block_size)
+    #                 # if compressed:
+    #                 #     block_bytes = gzip.compress(block_bytes, compresslevel=1)
+    #
+    #                 connection.sendall(block_bytes)
+    #
+    #                 print(f'{datetime.now()} - Bytes read: {len(block_bytes)}')
+    #                 total_bytes_read += len(block_bytes)
+    #                 print(
+    #                     f'{datetime.now()} - Total bytes read: {total_bytes_read} bytes.')
+    #                 partition += 1
+    #                 print(f'{datetime.now()} - Total partitions:', partition)
+    #         connection.shutdown(socket.SHUT_RDWR)
+    #
+    #     except:
+    #         pass
+    #     else:
+    #         print('Finished sending!')
+    #     finally:
+    #         connection.close()
+    #         sock.close()
 
     def download_interaction(
             self,
@@ -74,11 +265,11 @@ class ThreadedFileServerRequestHandler(socketserver.BaseRequestHandler):
             compressed: bool,
     ):
         abs_path = get_abspath(path)
-        validate_path(abs_path)
 
         logging.debug('Caminho absoluto do arquivo pedido: %s', abs_path)
 
         if not os.path.exists(abs_path):
+            print('AAHAHGIFHGIHFIGHFIGH')
             logging.debug('Arquivo %s não existe!', abs_path)
             server_response = {
                 'ports': None,
@@ -138,6 +329,7 @@ class ThreadedFileServerRequestHandler(socketserver.BaseRequestHandler):
         logging.debug('Memória por conexão: %s', bytes2human(process_memory))
 
         threads = []
+        start_byte = 0
         for i in range(streams):
             block_size = blocksizes[i]
             partition_size = partition_sizes[i]
@@ -145,15 +337,17 @@ class ThreadedFileServerRequestHandler(socketserver.BaseRequestHandler):
             thread = threading.Thread(
                 target=self.start_download,
                 args=(
+                    i,
                     download_socket,
                     abs_path,
-                    i,
-                    block_size,
+                    start_byte,
                     partition_size,
+                    block_size,
                     compressed
                 )
             )
             threads.append(thread)
+            start_byte += partition_size
 
         for thread in threads:
             thread.start()
@@ -229,6 +423,7 @@ def run():
     finally:
         print('\nDesligando servidor...')
         file_server.shutdown()
+        file_server.server_close()
 
 
 if __name__ == '__main__':

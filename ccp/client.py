@@ -10,7 +10,7 @@ from typing import List, Tuple, Dict
 
 import tqdm
 
-from addressing import (
+from ccp.addressing import (
     get_partial_path,
     is_valid_ipv4_hostname,
     is_valid_ipv6_hostname,
@@ -19,60 +19,48 @@ from addressing import (
     validate_path
 )
 
-from messaging import (
+from ccp.messaging import (
     send_message,
     recv_message
 )
 
-from utils import bytes2human, human2bytes
-from argparsers import get_client_parser
+from ccp.utils import bytes2human, human2bytes
+from ccp.argparsers import get_client_parser
 
 
-def start_download(hostname: str, port: int, target_path: str):
+def start_download(hostname: str, port: int, part_id: int, target_path: str):
     """
     Inicia o download de parte do arquivo até receber byte de término.
     :param hostname: IP do servidor
     :param port: Porta de envio do servidor
+    :param part_id: ID of partition
     :param target_path: Caminho absoluto do arquivo-destino
     """
-    partial_path = get_partial_path(target_path, port)
+    partial_path = get_partial_path(target_path, part_id)
+
+    print(f'{port}: Iniciando download de {target_path} para o arquivo parcial {partial_path}')
 
     download_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     download_socket.connect((hostname, port))
 
-    BUFFER_SIZE = 1024
+    file_length = recv_message(download_socket, nbytes=30)
+    print(f'{port}: Recebi tamanho do download: ', file_length)
+
+    BUFFER_SIZE = 2 ** 20
 
     total_data_written = 0
+    total_data_received = 0
     with open(partial_path, 'wb') as partial_file:
-        while (recv_bytes := download_socket.recv(BUFFER_SIZE)):
+        while total_data_written < file_length:
+            recv_bytes = download_socket.recv(BUFFER_SIZE)
+            print(f'{port}: Recebi {len(recv_bytes)} bytes do servidor.')
+            if not recv_bytes or recv_bytes == 0:
+                raise RuntimeError('Broken connection')
             curr_data_written = partial_file.write(recv_bytes)
             total_data_written += curr_data_written
-    print(f'Fim do download. Baixei {total_data_written} bytes.')
+            total_data_received += len(recv_bytes)
 
-
-def join_downloaded_files(target_path: str, ports: List[int], read_size=2**20):
-    partial_paths = [
-        get_partial_path(target_path, port)
-        for port in ports
-    ]
-
-    total_downloaded_bytes = sum(
-        os.path.getsize(path) for path in partial_paths
-    )
-
-    progress_bar = tqdm.tqdm(
-        total_downloaded_bytes,
-        f"Juntando {len(ports)} arquivos, totalizando {total_downloaded_bytes} bytes.",
-        unit="B",
-        unit_scale=True,
-        unit_divisor=read_size
-    )
-    with open(target_path, 'wb') as complete_file:
-        for path in partial_paths:
-            with open(path, 'rb') as partial_file:
-                read_bytes = partial_file.read(read_size)
-                curr_data_written = complete_file.write(read_bytes)
-                progress_bar.update(curr_data_written)
+    print(f'Fim do download de {partial_path}. Tamanho: {bytes2human(total_data_written)}.')
 
 
 def confirm_decision(question):
@@ -111,7 +99,6 @@ def run_client(
         (123A + 4A) = 1234A = A
      - Fim.
 
-    :param confirm_download:
     :param server_hostname: IP do servidor
     :param server_port: Porta do servidor
     :param local_path: Caminho do arquivo local
@@ -178,9 +165,9 @@ def run_client(
     threads = [
         threading.Thread(
             target=start_download,
-            args=(server_hostname, port, local_path)
+            args=(server_hostname, port, i, local_path)
         )
-        for port in download_ports
+        for i, port in enumerate(download_ports)
     ]
 
     for thread in threads:
@@ -190,7 +177,9 @@ def run_client(
         thread.join()
 
     sock.close()
-    join_downloaded_files(local_path, download_ports)
+    # join_downloaded_files(local_path, download_ports)
+    # delete_partial_files(local_path, download_ports)
+
     print('Fim!')
 
 
