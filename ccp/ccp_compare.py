@@ -37,10 +37,10 @@ def compare_files(source_file, target_file):
     buffer_size = 1024
     progress_bar = tqdm.tqdm(
         total=target_size,
-        desc=f"Comparando os arquivos:\n - {source_file}\n - {target_file}.",
+        desc=f"Comparando os arquivos",
         unit="B",
         unit_scale=True,
-        unit_divisor=buffer_size
+        # unit_divisor=buffer_size
     )
 
     with progress_bar as p_bar:
