@@ -56,7 +56,7 @@ def join_downloaded_files(
     )
     with progress_bar as p_bar:
         with open(target_path, 'wb') as complete_file:
-            for path in source_paths:
+            for path in sorted(source_paths):
                 with open(path, 'rb') as partial_file:
                     read_bytes = partial_file.read()
                     print(f'Read {len(read_bytes)}')
