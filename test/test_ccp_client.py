@@ -106,8 +106,6 @@ import socket
 def test_send_recv():
     ADDRESS = ('localhost', 12345)
 
-
-
     def sending_side():
         print('Sending side.')
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

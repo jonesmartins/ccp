@@ -1,8 +1,4 @@
-import argparse
 import logging
-import os
-import pathlib
-import pickle
 import socket
 import sys
 import time
@@ -32,8 +28,7 @@ from ccp.ccp_finish import join_downloaded_files
 def start_download(
         hostname: str,
         port: int,
-        partial_path: str,
-        target_path: pathlib.Path
+        partial_path: str
 ):
     """
     Inicia o download de parte do arquivo até receber byte de término.
@@ -42,7 +37,6 @@ def start_download(
     :param part_id: ID of partition
     :param target_path: Caminho absoluto do arquivo-destino
     """
-
 
     # print(f'{port}: Iniciando download de {target_path} para o arquivo parcial {partial_path}')
 
@@ -87,6 +81,11 @@ def start_download(
 
 
 def confirm_decision(question):
+    """
+    Confirma determinada decisão.
+    :param question: Pergunta ao usuário
+    :return: Se confirmou, True, senão, False.
+    """
     print(question)
     while True:
         lower = input('([S]/N) >> ').lower()

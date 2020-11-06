@@ -1,22 +1,18 @@
 import logging
 import socketserver
 import pickle
-import os
 import threading
 import socket
 import sys
 import gzip
 import psutil
-# import daemon
-import math
-from datetime import datetime
-
+import daemon
+import os
 
 from ccp.messaging import send_message, recv_message
-from ccp.addressing import get_abspath, validate_path
+from ccp.addressing import get_abspath
 from ccp.argparsers import get_server_parser
-from ccp.utils import bytes2human, human2bytes
-import shutil
+from ccp.utils import bytes2human
 from ccp.addressing import get_partial_path
 
 
@@ -30,46 +26,20 @@ class ThreadedFileServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 
 class ThreadedFileServerRequestHandler(socketserver.BaseRequestHandler):
-    # def start_download(
-    #         self,
-    #         sock,
-    #         path,
-    #         partition_index,
-    #         block_size,
-    #         partition_size,
-    #         compressed
-    # ):
-    #     connection, _ = sock.accept()
-    #     try:
-    #         with open(path, mode='rb') as file:
-    #             file.seek(partition_index * partition_size)
-    #             total_bytes_read = 0
-    #             partition = 0
-    #             while total_bytes_read < partition_size:
-    #                 # with open(compressed_filename, 'w') as zf:
-    #                 block_bytes = file.read(block_size)
-    #                 if compressed:
-    #                     block_bytes = gzip.compress(block_bytes, compresslevel=1)
-    #
-    #                 connection.sendall(block_bytes)
-    #
-    #                 print(f'{datetime.now()} - Bytes read: {len(block_bytes)}')
-    #                 total_bytes_read += len(block_bytes)
-    #                 print(
-    #                     f'{datetime.now()} - Total bytes read: {total_bytes_read} bytes.')
-    #                 partition += 1
-    #                 print(f'{datetime.now()} - Total partitions:', partition)
-    #         connection.shutdown(socket.SHUT_RDWR)
-    #
-    #     except:
-    #         pass
-    #     else:
-    #         print('Finished sending!')
-    #     finally:
-    #         connection.close()
-    #         sock.close()
-
-    def compress_file(self, source_path, target_path, start_byte, partition_size):
+    def compress_file(
+            self,
+            source_path: str,
+            target_path: str,
+            start_byte: int,
+            partition_size: int
+    ):
+        """
+        Comprime parte de um arquivo, salvando como target_path.
+        :param source_path: Arquivo original
+        :param target_path: Nome do arquivo particionado
+        :param start_byte: Byte inicial
+        :param partition_size: Tamanho da partição
+        """
         print(
             f'Compressing {source_path} to {target_path} from {start_byte} to {start_byte + partition_size}.')
         with open(
@@ -85,14 +55,19 @@ class ThreadedFileServerRequestHandler(socketserver.BaseRequestHandler):
                 bytes_written = gzip_file.write(file.read(partition_size))
                 print(f'Wrote {bytes2human(bytes_written)} to {target_path}')
 
-    def partition_file(self, source_path, target_path, start_byte, partition_size):
+    def partition_file(
+            self,
+            source_path: str,
+            target_path: str,
+            start_byte: int,
+            partition_size: int
+    ):
         """
-        Write to <dest> <source>'s content from start_byte to start_byte + partition_size.
-        :param source_path: Source file
-        :param target_path: Destination file
-        :param start_byte:
-        :param partition_size:
-        :return:
+        Particiona um arquivo, salvando como target_path.
+        :param source_path: Arquivo original
+        :param target_path: Nome do arquivo particionado
+        :param start_byte: Byte inicial
+        :param partition_size: Tamanho da partição
         """
         print(f'Partitioning {source_path} to {target_path} from {start_byte} to {start_byte + partition_size}.')
         with open(
@@ -113,13 +88,17 @@ class ThreadedFileServerRequestHandler(socketserver.BaseRequestHandler):
             partition_path,
             block_size
     ):
-
+        """
+        Envia arquivo.
+        :param sock: Conexão TCP
+        :param partition_path: Caminho do arquivo de partição
+        :param block_size: Tamanho do bloco de envio
+        """
         download_port = sock.getsockname()[1]
 
         connection, _ = sock.accept()
 
         # Antes de enviar o arquivo, enviamos o tamanho.
-        import os
         file_size = os.path.getsize(partition_path)
         length_bytes = pickle.dumps(file_size)
         length_bytes_buf = bytearray(30)
@@ -143,14 +122,10 @@ class ThreadedFileServerRequestHandler(socketserver.BaseRequestHandler):
                     connection.sendall(block_bytes)
                     print(f'{download_port}: Enviei block_bytes.')
 
-                    # print(
-                    #     f'{download_port}: Bytes read: {len(block_bytes)}')
                     total_bytes_read += len(block_bytes)
                     print(
                         f'{download_port}:  Total bytes read: {bytes2human(total_bytes_read)}.')
                     blocks_written += 1
-                    # print(f'{download_port}:  Total blocks_written:',
-                    #       blocks_written)
 
         except Exception as exc:
             print(exc)
@@ -208,19 +183,23 @@ class ThreadedFileServerRequestHandler(socketserver.BaseRequestHandler):
         )
         os.remove(partition_path)
 
-
     def download_interaction(
             self,
             path: str,
             streams: int,
             compressed: bool,
     ):
+        """
+        Interação de download após o pedido pelo cliente.
+        :param path: Caminho do arquivo pedido
+        :param streams: Número de conexões paralelas de envio
+        :param compressed: Ativa compressão das partições
+        """
         abs_path = get_abspath(path)
 
         logging.debug('Caminho absoluto do arquivo pedido: %s', abs_path)
 
         if not os.path.exists(abs_path):
-            print('AAHAHGIFHGIHFIGHFIGH')
             logging.debug('Arquivo %s não existe!', abs_path)
             server_response = {
                 'ports': None,
@@ -324,6 +303,9 @@ class ThreadedFileServerRequestHandler(socketserver.BaseRequestHandler):
         print('Fim da conexão com cliente.')
 
     def handle(self):
+        """
+        Recebe e reage ao pedido do cliente.
+        """
         logging.debug('Opa!')
         request_message = recv_message(connection=self.request)
         logging.debug('Mensagem recebida do cliente: %s', request_message)
