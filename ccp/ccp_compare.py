@@ -20,7 +20,7 @@ def get_compare_argparse():
         help='Dois arquivos para comparar'
     )
 
-    default_block_size = '1MB'
+    default_block_size = '1M'
     parser.add_argument(
         '-b', '--blocksize',
         dest='block_size',
