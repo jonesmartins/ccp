@@ -220,8 +220,6 @@ def run_client(
         print('Juntando partições baixadas...')
         join_downloaded_files(partial_paths, local_path, keep_partitions)
 
-    # delete_partial_files(local_path, download_ports)
-
     print('Fim!')
 
 

@@ -13,7 +13,6 @@ def get_compare_argparse():
     )
 
     parser.add_argument(
-        required=True,
         nargs=2,
         dest='files',
         type=str,
@@ -67,10 +66,9 @@ def run():
     parser = get_compare_argparse()
     parsed_args = parser.parse_args(sys.argv[1:])
 
-    source_file = parsed_args.source_file
-    target_file = parsed_args.target_file
+    first_file, second_file = parsed_args.files
 
-    compare_files(source_file, target_file)
+    compare_files(first_file, second_file)
 
 
 if __name__ == '__main__':
