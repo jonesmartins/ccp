@@ -28,6 +28,7 @@ from ccp.ccp_finish import join_downloaded_files
 def start_download(
         hostname: str,
         port: int,
+        remote_path: str,
         partial_path: str
 ):
     """
@@ -38,7 +39,7 @@ def start_download(
     :param target_path: Caminho absoluto do arquivo-destino
     """
 
-    # print(f'{port}: Iniciando download de {target_path} para o arquivo parcial {partial_path}')
+    print(f'{port}: Iniciando download de {remote_path} para o arquivo parcial {partial_path}')
 
     download_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     download_socket.connect((hostname, port))
@@ -50,7 +51,7 @@ def start_download(
 
     progress_bar = tqdm.tqdm(
         total=file_length,
-        desc=f"Baixando {partial_path}.",
+        desc=f"Baixando {partial_path}",
         unit="B",
         unit_scale=True,
         unit_divisor=BUFFER_SIZE
@@ -170,7 +171,7 @@ def run_client(
     download_ports = download_response['ports']
     download_uncompressed_size = download_response['size']
     if download_ports is None:
-        print(f'Arquivo {remote_path} não foi encontrado pelo servidor.')
+        print(f'Arquivo {download_response["file"]} não foi encontrado pelo servidor.')
         sys.exit(1)
 
     if ask_confirmation:
@@ -199,8 +200,8 @@ def run_client(
             args=(
                 server_hostname,
                 port,
+                remote_path,
                 partial_path,
-                local_path
             )
         )
         for port, partial_path in zip(download_ports, partial_paths)

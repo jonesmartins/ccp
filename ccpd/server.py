@@ -203,7 +203,8 @@ class ThreadedFileServerRequestHandler(socketserver.BaseRequestHandler):
             logging.debug('Arquivo %s não existe!', abs_path)
             server_response = {
                 'ports': None,
-                'size': None
+                'size': None,
+                'file': abs_path
             }
             send_message(
                 connection=self.request,
