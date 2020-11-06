@@ -58,10 +58,24 @@ def get_client_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        '-d', '--debug-mode',
+        '-D', '--debug-mode',
         action='store_true',
         dest='debug_mode',
         help='Ativa mensagens de depuração'
+    )
+
+    parser.add_argument(
+        '-d',
+        dest='decompress',
+        action='store_true',
+        help='Descomprime após receber (caso tenha comprimido)'
+    )
+
+    parser.add_argument(
+        '-k', '--keep',
+        dest='keep',
+        action='store_true',
+        help='Mantém partições após junção'
     )
 
     return parser
@@ -91,7 +105,7 @@ def get_server_parser():
     )
 
     parser.add_argument(
-        '-d', '--debug-mode',
+        '-D', '--debug-mode',
         action='store_true',
         dest='debug_mode',
         help='Ativa mensagens de depuração'

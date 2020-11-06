@@ -42,6 +42,7 @@ def get_finish_argparse():
 def join_downloaded_files(
         source_paths: List[str],
         target_path: str,
+        keep: bool
 ):
     total_downloaded_bytes = sum(
         os.path.getsize(path) for path in source_paths
@@ -74,6 +75,9 @@ def join_downloaded_files(
                         p_bar.update(len(read_bytes))
         p_bar.refresh()
 
+    if not keep:
+        delete_files(source_paths)
+
 
 def delete_files(paths):
     for path in paths:
@@ -88,9 +92,7 @@ def run():
     target_file = parsed_args.target_file
     keep = parsed_args.keep
 
-    join_downloaded_files(source_files, target_file)
-    if not keep:
-        delete_files(source_files)
+    join_downloaded_files(source_files, target_file, keep=keep)
 
 
 if __name__ == '__main__':

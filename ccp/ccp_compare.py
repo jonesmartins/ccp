@@ -9,26 +9,19 @@ import sys
 def get_compare_argparse():
     parser = argparse.ArgumentParser(
         prog='CCP Compare',
-        description='Compara arquivo original com arquivo recebido.'
+        description='Compara dois arquivos entre si.'
     )
 
     parser.add_argument(
-        '-s', '--source',
         required=True,
-        dest='source_file',
+        nargs=2,
+        dest='files',
         type=str,
-        help='Arquivos fonte.'
-    )
-
-    parser.add_argument(
-        '-t', '--target',
-        required=True,
-        dest='target_file',
-        type=str,
-        help='Arquivo destino'
+        help='Dois arquivos para comparar'
     )
 
     return parser
+
 
 import os
 def compare_files(source_file, target_file):
@@ -63,7 +56,6 @@ def compare_files(source_file, target_file):
                     if sbytes != tbytes:
                         print(f'Diferença encontrada no byte {bytes_read}.')
                         return False
-
                     p_bar.update(n=len(sbytes))
         p_bar.refresh()
 

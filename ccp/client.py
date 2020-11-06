@@ -5,6 +5,7 @@ import pathlib
 import pickle
 import socket
 import sys
+import time
 import threading
 
 import tqdm
@@ -25,9 +26,15 @@ from ccp.messaging import (
 
 from ccp.utils import bytes2human
 from ccp.argparsers import get_client_parser
+from ccp.ccp_finish import join_downloaded_files
 
 
-def start_download(hostname: str, port: int, part_id: int, target_path: pathlib.Path):
+def start_download(
+        hostname: str,
+        port: int,
+        partial_path: str,
+        target_path: pathlib.Path
+):
     """
     Inicia o download de parte do arquivo até receber byte de término.
     :param hostname: IP do servidor
@@ -35,7 +42,7 @@ def start_download(hostname: str, port: int, part_id: int, target_path: pathlib.
     :param part_id: ID of partition
     :param target_path: Caminho absoluto do arquivo-destino
     """
-    partial_path = get_partial_path(target_path, part_id)
+
 
     # print(f'{port}: Iniciando download de {target_path} para o arquivo parcial {partial_path}')
 
@@ -56,7 +63,7 @@ def start_download(hostname: str, port: int, part_id: int, target_path: pathlib.
     )
     total_data_written = 0
     total_data_received = 0
-    import time
+
     start = time.perf_counter()
     with progress_bar as p_bar:
         with open(partial_path, 'wb') as partial_file:
@@ -98,7 +105,9 @@ def run_client(
         remote_path: str,
         streams: int,
         compressed: bool,
+        decompress: bool = False,
         ask_confirmation=True,
+        keep_partitions=False
 ):
     """
     Protocolo:
@@ -121,7 +130,9 @@ def run_client(
     :param remote_path: Caminho do arquivo remoto
     :param streams: Conexões paralelas
     :param compressed: Ativa compressão por parte do servidor
-    :param ask_confirmation: Pede confirmação de download.
+    :param decompress: Descomprime após receber
+    :param ask_confirmation: Pede confirmação de download
+    :param keep_partitions: Mantém partições após união de arquivos
     """
 
     if is_valid_ipv4_hostname(server_hostname):
@@ -178,12 +189,22 @@ def run_client(
             sock.close()
             sys.exit()
 
+    partial_paths = [
+        get_partial_path(local_path, part_id=i)
+        for i in range(len(download_ports))
+    ]
+
     threads = [
         threading.Thread(
             target=start_download,
-            args=(server_hostname, port, i, local_path)
+            args=(
+                server_hostname,
+                port,
+                partial_path,
+                local_path
+            )
         )
-        for i, port in enumerate(download_ports)
+        for port, partial_path in zip(download_ports, partial_paths)
     ]
 
     for thread in threads:
@@ -193,7 +214,12 @@ def run_client(
         thread.join()
 
     sock.close()
-    # join_downloaded_files(local_path, download_ports)
+
+    # Se o download não foi comprimido, eu já junto as partições.
+    if not compressed or (compressed and decompress):
+        print('Juntando partições baixadas...')
+        join_downloaded_files(partial_paths, local_path, keep_partitions)
+
     # delete_partial_files(local_path, download_ports)
 
     print('Fim!')
@@ -203,12 +229,13 @@ def run():
     parser = get_client_parser()
     parsed_args = parser.parse_args(sys.argv[1:])
 
-
     server_address = parsed_args.server_address
     local_path = parsed_args.local_path.strip()
     remote_path = parsed_args.remote_path.strip()
     streams = parsed_args.streams
     compressed = parsed_args.compressed
+    keep_partitions = parsed_args.keep
+    decompress = parsed_args.decompress
 
     if parsed_args.debug_mode:
         logging.basicConfig(
@@ -230,7 +257,9 @@ def run():
         remote_path,
         streams,
         compressed,
-        ask_confirmation=True
+        decompress=decompress,
+        ask_confirmation=True,
+        keep_partitions=keep_partitions
     )
 
 

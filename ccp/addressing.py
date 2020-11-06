@@ -134,7 +134,7 @@ def validate_path(abs_path: str) -> str:
     return abs_path
 
 
-def get_partial_path(path: pathlib.Path, part_id: int) -> str:
+def get_partial_path(path: str, part_id: int) -> str:
     """
     Monta o caminho parcial, que é o caminho de parte de um arquivo inteiro.
     :param path: Caminho absoluto do arquivo-destino
