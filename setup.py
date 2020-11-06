@@ -27,6 +27,7 @@ setuptools.setup(
         'tqdm',  # Python 2.6, 2.7, >= 3.2
         'coloredlogs',
         'psutil',
+        'daemon',
     ],
     entry_points={
         'console_scripts': [
