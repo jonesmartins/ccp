@@ -65,7 +65,7 @@ def get_client_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        '-d',
+        '-d', '--decompress',
         dest='decompress',
         action='store_true',
         help='Descomprime após receber (caso tenha comprimido)'
