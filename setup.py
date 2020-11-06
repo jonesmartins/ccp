@@ -31,7 +31,7 @@ setuptools.setup(
     entry_points={
         'console_scripts': [
             'ccp=ccp.client:run',
-            'ccpd=ccp.server:run'
+            'ccpd=ccpd.server:run'
         ]
     },
 )

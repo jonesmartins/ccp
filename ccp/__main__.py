@@ -1,5 +1,4 @@
-from ccp.run import run_shell
+from ccp.client import run
 
 if __name__ == '__main__':
-    run_shell()
-
+    run()
